@@ -1,0 +1,90 @@
+.only-mr: &only-mr
+  only:
+    - merge_requests
+
+.only-tag-branch: &only-tag-branch
+  only:
+    - develop
+    - tags
+
+.only-tags-mr-branch: &only-tags-mr-branch
+  only:
+    - tags
+    - merge_requests
+    - develop
+
+variables:
+  GROUPE_TESTEUR: "qa-team"
+
+stages:
+  - test
+  - build
+  - deploy
+
+test:flutter:
+  image: cirrusci/flutter
+  stage: test
+  script:
+    - flutter test
+  <<: *only-tags-mr-branch
+
+build:android-apk-mr:
+  image: cirrusci/flutter
+  stage: build
+  script:
+    - flutter build apk --build-name=$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME --build-number=$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
+  artifacts:
+    paths:
+      - build/app/outputs/apk
+    expire_in: 4h
+  <<: *only-mr
+
+build:ios-api-mr:
+  stage: build
+  script:
+    - flutter build ios --build-name=$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME --build-number=$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
+    - cd build/ios/Release-iphoneos/
+    - mkdir Payload
+    - mv Runner.app Payload
+    - zip -r Payload.zip Payload
+    - mv Payload.zip app-release.ipa
+  artifacts:
+    paths:
+      - build/ios/Release-iphoneos/
+    expire_in: 4h
+  <<: *only-mr
+
+build:android-apk-tag-branch:
+  image: cirrusci/flutter
+  stage: build
+  script:
+    - flutter build apk --build-name=$CI_COMMIT_REF_NAME --build-number=$CI_COMMIT_REF_NAME
+  artifacts:
+    paths:
+      - build/app/outputs/apk/release/app-release.apk
+    expire_in: 4h
+  <<: *only-tag-branch
+
+build:ios-api-tag-branch:
+  stage: build
+  script:
+    - flutter build ios --build-name=$CI_COMMIT_REF_NAME --build-number=$CI_COMMIT_REF_NAME
+    - cd build/ios/Release-iphoneos/
+    - mkdir Payload
+    - mv Runner.app Payload
+    - zip -r Payload.zip Payload
+    - mv Payload.zip app-release.ipa
+  artifacts:
+    paths:
+      - build/ios/Release-iphoneos/app-release.ipa
+    expire_in: 4h
+  <<: *only-tag-branch
+
+deploy:deploy-firebase:
+  image: devillex/docker-firebase
+  stage: deploy
+  script:
+    - firebase use --token $FIREBASE_TOKEN_CLI
+    - firebase appdistribution:distribute build/app/outputs/apk/release/app-release.apk --app "$APP_ID_FIREBASE_ANDROID" --release-notes "$CI_COMMIT_REF_NAME" --groups "$GROUPE_TESTEUR"  --token $FIREBASE_TOKEN_CLI
+    - firebase appdistribution:distribute build/ios/Release-iphoneos/app-release.ipa --app "$APP_ID_FIREBASE_IOS" --release-notes "$CI_COMMIT_REF_NAME" --groups "$GROUPE_TESTEUR" --token $FIREBASE_TOKEN_CLI
+  <<: *only-tags-mr-branch
